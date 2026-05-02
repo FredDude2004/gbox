@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Flask Socket Demo</title>
+	</head>
+	<body>
+		<h1>Flask Socket.IO Demo</h1>
+		<h2>Backend counter: <span id="counter">0</span></h2>
+
+		<input id="messageInput" placeholder="Type a message">
+		<button onclick="sendMessage()">Send</button>
+
+		<h3>Messages:</h3>
+		<ul id="messages"></ul>
+
+		<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+		<script src="{{ url_for('static', filename='script.js') }}"></script>
+	</body>
+</html>
