@@ -1,29 +1,4 @@
-import sqlite3
-import shortuuid
-
-
-from flask import Flask
 from collections import deque
-from dataclasses import dataclass
-
-app = Flask(__name__)
-
-
-@dataclass()
-class Song:
-    """
-    Class for holding a song object
-    """
-
-    link: str
-    title: str
-    user: str
-
-
-class User:
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.id = shortuuid.uuid()[:4]
 
 
 class GBoxQueue:
@@ -64,8 +39,3 @@ class GBoxQueue:
         Pop the next song off and return it
         """
         pass
-
-
-@app.route("/")
-def hello_world():
-    return "<p>Nutz Deez</p>"
