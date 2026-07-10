@@ -50,7 +50,7 @@ def download_song(url: str) -> Song:
 
     # download the song
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=True)
+        info_dict = ydl.extract_info(url, download=False)
 
         # Capture raw metadata variables
         video_id = info_dict.get("id")
@@ -58,6 +58,11 @@ def download_song(url: str) -> Song:
         uploader = info_dict.get("uploader")
         duration = info_dict.get("duration")  # in seconds
         view_count = info_dict.get("view_count")
+
+        if duration is None or duration > 900:
+            raise Exception("Video must be less than 15 minutes")
+
+        ydl.download([url])
 
         # Determine the final downloaded file path
         # yt-dlp gives us the template path, we replace the extension with our target (mp3)
