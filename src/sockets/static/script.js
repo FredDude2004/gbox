@@ -13,6 +13,11 @@ socket.on("backend_update", (data) => {
     addMessage(data.message);
 });
 
+socket.on("receive_private_message", (data) => {
+    document.getElementById("counter").textContent = data.count;
+    addMessage(data.message);
+});
+
 function sendMessage() {
     const input = document.getElementById("messageInput");
     url = input.value;
@@ -23,6 +28,7 @@ function sendMessage() {
         });
         input.value = "";
     } else {
+        socket.emit("send_private_message", { message: input.value });
         input.value = ""; // Clears the field
         message.innerText = "Please enter a valid name."; // Tells user what's wrong
         message.style.color = "red";

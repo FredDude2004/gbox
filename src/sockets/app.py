@@ -117,6 +117,16 @@ def handle_client_message(data):
     print(q)
 
 
+@socketio.on("send_private_message")
+def handle_private_message(data):
+    # Retrieve the recipient's unique Socket.IO session ID
+    target_sid = data.get("recipient_sid")
+    message = data.get("message")
+
+    # Send exclusively to the target client's private room
+    emit("receive_private_message", {"message": message}, room=target_sid)
+
+
 # if __name__ == "__main__":
 #     socketio.run(app, host="127.0.0.1", port=5000, debug=True)
 
