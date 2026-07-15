@@ -81,6 +81,8 @@ def admin():
 
 # TODO: Add an event handler for skip
 
+# TODO: Add an event handler for deleting/removing a song
+
 # TODO: Add an event handler for bump song up
 
-# TODO: Add an event handler for move song down
+# TODO: Add an event handler for bump song down
