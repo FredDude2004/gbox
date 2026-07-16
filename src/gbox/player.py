@@ -1,11 +1,16 @@
+import logging
+import queue
+import shutil
 import subprocess
+import threading
+import time
 
-from collections import deque
-from pathlib import Path
-from queue import Empty, Queue
-from threading import Thread
+from queue import Queue
 
+from .constants import *
 from .queue import GBoxQueue
+
+logger = logging.getLogger(__name__)
 
 
 class VLCPlayer:
@@ -16,139 +21,177 @@ class VLCPlayer:
     """
 
     def __init__(self, queue: GBoxQueue) -> None:
-        self.commands: Queue[tuple[str, str | None]] = Queue()
-        self.process: subprocess.Popen[str] | None = None
-        self.worker = Thread(target=self._run, daemon=True)
+        self._vlc_binary = self.find_vlc_binary()
 
-        # These fields are only accessed by the worker thread.
-        self._queue: GBoxQueue = queue
-        self._current: Path | None = None
+        self.command_queue: Queue[tuple[str, str | None]] = Queue()
+        self.process: subprocess.Popen[str] | None = None
+
+        self.gbox_queue: GBoxQueue = queue
+
+        self.worker_thread = None
+        self.current_audio_process = None
+        self.lock = threading.Lock()
+        self.shutdown = threading.Event()
+
+    @staticmethod
+    def find_vlc_binary():
+        for candidate in ("cvlc", "vlc"):
+            path = shutil.which(candidate)
+            if path:
+                return candidate
+        raise RuntimeError(
+            "Could not find 'cvlc' or 'vlc' on PATH. Please install VLC."
+        )
 
     def start(self) -> None:
-        self.worker.start()
-
-    def add(self, audio_path: str) -> None:
-        self.commands.put(("add", audio_path))
-
-    def pause(self) -> None:
-        self.commands.put(("pause", None))
-
-    def next(self) -> None:
-        self.commands.put(("next", None))
-
-    def stop(self) -> None:
-        self.commands.put(("stop", None))
-
-    def close(self) -> None:
-        self.commands.put(("quit", None))
-        self.worker.join()
-
-    def _send(self, command: str) -> None:
-        process = self.process
-
-        if process is not None and process.poll() is None and process.stdin is not None:
-            try:
-                process.stdin.write(command + "\n")
-                process.stdin.flush()
-            except (BrokenPipeError, OSError):
-                # VLC may have exited naturally between poll() and write().
-                pass
-
-    def _start_next(self) -> None:
-        """Start the next queued track when no track is currently running."""
-        if self.process is not None or not self._queue:
+        if self.worker_thread is not None:
             return
+        self.shutdown.clear()
+        self.worker_thread = threading.Thread(
+            target=self.worker, name="VLCPlayerWorker", daemon=True
+        )
+        self.worker_thread.start()
 
-        song = self._queue.get_next_song()
-        path = Path(song.file_path)
-
-        try:
-            self.process = subprocess.Popen(
-                [
-                    "cvlc",
-                    "--intf",
-                    "rc",
-                    "--rc-fake-tty",
-                    "--play-and-exit",
-                    "--no-video",
-                    path.as_uri(),
-                ],
-                stdin=subprocess.PIPE,
-                text=True,
-            )
-        except FileNotFoundError:
-            print("Could not find cvlc. Make sure VLC is installed.")
-            return
-
-        self._current = path
-        print(f"Playing: {path.name}")
-
-    def wait_for_track_to_finish(self) -> bool:
-        """Clean up a naturally finished VLC process.
-
-        Returns True when a track finished, allowing the worker to immediately
-        start the next queued track.
-        """
-        process = self.process
-
-        if process is None or process.poll() is None:
-            return False
-
-        process.wait()
-        self.process = None
-        self._current = None
-        return True
-
-    def end_current_track(self) -> None:
-        """Stop the active VLC process and fully reap it."""
-        process = self.process
-
-        if process is None:
-            return
-
-        if process.poll() is None:
-            self._send("quit")
-
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-
-                try:
-                    process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-        else:
-            process.wait()
-
-        self.process = None
-        self._current = None
-
-    def _run(self) -> None:
+    def worker(self) -> None:
         while True:
-            # A process exits when its track ends because of --play-and-exit.
-            # Start the next Python-queued track rather than asking VLC to
-            # resume its old internal playlist selection.
-            if self.wait_for_track_to_finish():
-                self._start_next()
+            # handle any pending control commands first
+            command_result = self.check_if_closed()
+            if command_result == "closed":
+                break
 
-            try:
-                command, argument = self.commands.get(timeout=0.1)
-            except Empty:
+            # if nothing is playing, try to pull the next file and start it
+            with self.lock:
+                has_current = self.current_audio_process is not None
+
+            if not has_current:
+                try:
+                    song = self.gbox_queue.get_next_song()
+                    audio_file_path = song.file_path
+                except Exception as e:
+                    logger.debug(e)
+                    continue
+                self.start_audio(audio_file_path)
                 continue
 
-            if command == "pause":
-                self._send("pause")
+            # something is playing, check whether it has finished on its own
+            with self.lock:
+                proc = self.current_audio_process
+            if proc is not None and proc.poll() is not None:
+                self.cleanup_current_process()
 
-            elif command == "next":
-                self.end_current_track()
-                self._start_next()
+            time.sleep(POLL_INTERVAL)
 
-            elif command == "stop":
-                self.end_current_track()
+        # final cleanup on shutdown
+        self.cleanup_current_process(force=True)
 
-            elif command == "quit":
-                self._queue.clear()
-                self.end_current_track()
-                break
+    def check_if_closed(self):
+        while True:
+            try:
+                cmd, _ = self.command_queue.get_nowait()
+            except queue.Empty:
+                return None
+
+            if cmd == "pause":
+                logger.info("[VLCPlayer] Sending pause/play")
+                self.send_pause()
+            elif cmd == "next":
+                logger.info("[VLCPlayer] Sending skip")
+                self.cleanup_current_process(force=True)
+            elif cmd == "stop":
+                logger.info("[VLCPlayer] Sending stop")
+                self.cleanup_current_process(force=True)
+            elif cmd == "close":
+                self.gbox_queue.clear_queue()
+                self.cleanup_current_process(force=True)
+                self.shutdown.set()
+                return "closed"
+
+    def start_audio(self, path) -> None:
+        args = [
+            self._vlc_binary,
+            "--no-video",
+            "--play-and-exit",
+            "--intf",
+            "rc",
+            path,
+        ]
+
+        try:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except OSError as exc:
+            print(f"[AudioQueuePlayer] Failed to start VLC for {path}: {exc}")
+            return
+
+        with self.lock:
+            self.current_audio_process = proc
+        logger.debug(f"[VLCPlayer] Now playing: {path}")
+
+    def send_pause(self) -> None:
+        with self.lock:
+            proc = self.current_audio_process
+        if proc is None or proc.poll() is not None:
+            return
+        if proc is None or proc.poll() is not None or proc.stdin is None:
+            return
+
+        try:
+            proc.stdin.write("pause\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def cleanup_current_process(self, force=False):
+        with self.lock:
+            proc = self.current_audio_process
+            self.current_audio_process = None
+
+        if proc is None:
+            return
+
+        if force and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        else:
+            proc.wait()
+
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except OSError:
+            pass
+
+    def pause(self):
+        """Toggle pause/resume on the currently playing track."""
+
+        self.command_queue.put(("pause", None))
+
+    def next(self):
+        """Stop the current track and immediately advance to the next one."""
+
+        self.command_queue.put(("next", None))
+
+    def stop(self):
+        """Stop the current track without clearing the remaining queue."""
+
+        self.command_queue.put(("stop", None))
+
+    def close(self):
+        """
+        Clear the pending queue, stop the active track, and shut down the
+        worker thread cleanly. Blocks until the worker has exited.
+        """
+
+        self.command_queue.put(("close", None))
+        if self._worker_thread is not None:
+            self._worker_thread.join()
+            self._worker_thread = None

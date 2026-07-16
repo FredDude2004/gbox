@@ -1,8 +1,8 @@
 import os
 import re
-import yt_dlp
 
 from sqlmodel import select
+from yt_dlp import _Params, YoutubeDL
 
 from .constants import AUDIO_PATH
 from .database import get_session
@@ -34,7 +34,7 @@ def download_song(url: str, username: str) -> Song:
         return song
 
     # options for downloading the song
-    ydl_opts = {
+    ydl_opts: _Params = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(
             AUDIO_PATH, "%(title)s.%(ext)s"
@@ -49,7 +49,7 @@ def download_song(url: str, username: str) -> Song:
     }
 
     # download the song
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url, download=False)
 
         # Capture raw metadata variables

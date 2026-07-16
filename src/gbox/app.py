@@ -1,3 +1,5 @@
+import logging
+
 from flask import (
     Flask,
     render_template,
@@ -13,11 +15,12 @@ from flask_socketio import SocketIO, emit
 from sqlmodel import select
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+
 from .constants import *
 from .database import get_session
 from .downloader import download_song
-from .model import User, Config
-from .queue import GBoxQueue
+from .model import User, Config, Song
+from .player import VLCPlayer
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -25,7 +28,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login"
+# login_manager.login_view = "login"
 
 socketio = SocketIO(
     app,
@@ -33,6 +36,8 @@ socketio = SocketIO(
     logger=True,
     engineio_logger=True,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @login_manager.user_loader
@@ -92,11 +97,6 @@ def admin():
 
 
 # socket event handlers
-
-
-# TODO: Add an event handler for when a user submits a url
-#       The handler should return the entire state of the queue
-#       The frontend should then update the queue on the screen
 @socketio.on("submit_song")
 def submit(data: dict):
     try:
@@ -107,22 +107,57 @@ def submit(data: dict):
         gbox_queue = app.config["QUEUE"]
         gbox_queue.add_song(song)
 
-        emit("song_added", gbox_queue.to_json(), broadcast=True)
+        emit("queue_updated", gbox_queue.to_json(), broadcast=True)
     except:
         pass
 
 
-# ADMIN EVENT HANDLERS
+# admin event handlers
+@socketio.on("admin_pause")
+def pause_player():
+    player: VLCPlayer = app.config["PLAYER"]
+    player.pause()
 
-# TODO: Add an event handler for pause/play
 
-# TODO: Add an event handler for skip
+@socketio.on("admin_skip")
+def skip_song():
+    player: VLCPlayer = app.config["PLAYER"]
+    player.next()
 
-# TODO: Add an event handler for deleting/removing a song
+    gbox_queue = app.config["QUEUE"]
+    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
 
-# TODO: Add an event handler for bump song up
 
-# TODO: Add an event handler for bump song down
+@socketio.on("admin_remove_song")
+def clear_queue():
+    gbox_queue = app.config["QUEUE"]
+    gbox_queue.clear_queue()
+
+    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+
+
+@socketio.on("admin_remove_song")
+def remove_song(data: dict):
+    gbox_queue = app.config["QUEUE"]
+    gbox_queue.remove_song(Song(**data["song"]))
+
+    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+
+
+@socketio.on("admin_bump_up_song")
+def bump_song_up(data: dict):
+    gbox_queue = app.config["QUEUE"]
+    gbox_queue.bump_up(Song(**data["song"]))
+
+    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+
+
+@socketio.on("admin_bump_down_song")
+def bump_song_down(data: dict):
+    gbox_queue = app.config["QUEUE"]
+    gbox_queue.bump_down(Song(**data["song"]))
+
+    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
 
 
 if __name__ == "__main__":
