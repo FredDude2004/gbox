@@ -8,7 +8,7 @@ import time
 from queue import Queue
 
 from .constants import *
-from .queue import GBoxQueue
+from .gbox_queue import GBoxQueue
 
 logger = logging.getLogger(__name__)
 

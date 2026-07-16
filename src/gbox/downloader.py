@@ -9,6 +9,7 @@ from yt_dlp import YoutubeDL
 
 from .constants import AUDIO_PATH
 from .database import get_session
+from .gbox_queue import QueueEntry
 from .model import Song
 
 
@@ -20,7 +21,7 @@ def clean_filename(filename: str):
     return f"{cleaned}.mp3"
 
 
-def check_if_downloaded(url: str):
+def check_if_downloaded(url: str) -> QueueEntry | None:
     """Check if a song is already downloaded"""
     with next(get_session()) as session:
         statement = select(Song).where(Song.url == url)
@@ -44,12 +45,12 @@ def check_if_downloaded(url: str):
                     session.add(song)
                     session.commit()
                     session.refresh(song)
-                return song
+                return QueueEntry.from_song(song)
 
         return None
 
 
-def download_song(url: str, username: str) -> Song:
+def download_song(url: str, username: str) -> QueueEntry:
     """Download the song from the provided url and enter the download into the database"""
 
     # check if the song is already downloaded
@@ -85,12 +86,13 @@ def download_song(url: str, username: str) -> Song:
         if duration is None or duration > 900:
             raise Exception("Video must be less than 15 minutes")
 
+        cleaned_filepath = AUDIO_PATH / clean_filename(f"{title or video_id}.mp3")
+        ydl.params["outtmpl"] = {"default": str(cleaned_filepath.with_suffix(".%(ext)s"))}
         ydl.download([url])
 
         # Determine the final downloaded file path
         # yt-dlp gives us the template path, we replace the extension with our target (mp3)
-        temp_filepath = ydl.prepare_filename(info_dict)
-        final_filepath = str(Path(temp_filepath).with_suffix(".mp3"))
+        final_filepath = str(cleaned_filepath.resolve())
 
     # create an entry for the song in the database
     with next(get_session()) as session:
@@ -107,5 +109,6 @@ def download_song(url: str, username: str) -> Song:
 
         session.add(new_song)
         session.commit()
+        session.refresh(new_song)
 
-        return new_song
+        return QueueEntry.from_song(new_song)

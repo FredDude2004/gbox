@@ -1,16 +1,3 @@
-if __name__ == "__main__" and __package__ is None:
-    # Running this file directly adds ``src/gbox`` to sys.path, which makes
-    # queue.py shadow Python's standard-library queue module. Treat the file as
-    # part of the gbox package and put ``src`` on the import path instead.
-    import sys
-    from pathlib import Path
-
-    package_dir = str(Path(__file__).resolve().parent)
-    if package_dir in sys.path:
-        sys.path.remove(package_dir)
-    sys.path.insert(0, str(Path(package_dir).parent))
-    __package__ = "gbox"
-
 import logging
 
 from flask import (
@@ -26,14 +13,13 @@ from flask_socketio import SocketIO, emit
 from sqlmodel import select
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from gbox.queue import GBoxQueue
 
-
+from .config import Config
 from .constants import *
 from .database import get_session, init_db
 from .downloader import download_song
-from .config import Config
-from .model import User, Song
+from .gbox_queue import GBoxQueue, QueueEntry
+from .model import User
 from .player import VLCPlayer
 
 app = Flask(__name__)
@@ -168,7 +154,7 @@ def clear_queue():
 @socketio.on("admin_remove_song")
 def remove_song(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
-    gbox_queue.remove_song(Song(**data["song"]))
+    gbox_queue.remove_song(QueueEntry(**data["song"]))
 
     print(gbox_queue.to_view_list())
     emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
@@ -177,7 +163,7 @@ def remove_song(data: dict):
 @socketio.on("admin_bump_up_song")
 def bump_song_up(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
-    gbox_queue.bump_up(Song(**data["song"]))
+    gbox_queue.bump_up(QueueEntry(**data["song"]))
 
     print(gbox_queue.to_view_list())
     emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
@@ -186,7 +172,7 @@ def bump_song_up(data: dict):
 @socketio.on("admin_bump_down_song")
 def bump_song_down(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
-    gbox_queue.bump_down(Song(**data["song"]))
+    gbox_queue.bump_down(QueueEntry(**data["song"]))
 
     print(gbox_queue.to_view_list())
     emit("queue_update", gbox_queue.to_view_list(), broadcast=True)

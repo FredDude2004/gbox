@@ -1,7 +1,7 @@
 import os
 
 from .player import VLCPlayer
-from .queue import GBoxQueue
+from .gbox_queue import GBoxQueue
 
 
 class Config:
