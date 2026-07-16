@@ -7,13 +7,13 @@ from flask import (
     redirect,
     url_for,
     flash,
-    session,
-    jsonify,
 )
 from flask_login import LoginManager, login_user, login_required, logout_user
 from flask_socketio import SocketIO, emit
 from sqlmodel import select
 from werkzeug.middleware.proxy_fix import ProxyFix
+
+from gbox.queue import GBoxQueue
 
 
 from .constants import *
@@ -104,10 +104,10 @@ def submit(data: dict):
         username = data["username"]
 
         song = download_song(yt_url, username)
-        gbox_queue = app.config["QUEUE"]
+        gbox_queue: GBoxQueue = app.config["QUEUE"]
         gbox_queue.add_song(song)
 
-        emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+        emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
     except:
         pass
 
@@ -124,40 +124,40 @@ def skip_song():
     player: VLCPlayer = app.config["PLAYER"]
     player.next()
 
-    gbox_queue = app.config["QUEUE"]
-    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
+    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_remove_song")
 def clear_queue():
-    gbox_queue = app.config["QUEUE"]
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.clear_queue()
 
-    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_remove_song")
 def remove_song(data: dict):
-    gbox_queue = app.config["QUEUE"]
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.remove_song(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_bump_up_song")
 def bump_song_up(data: dict):
-    gbox_queue = app.config["QUEUE"]
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.bump_up(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_bump_down_song")
 def bump_song_down(data: dict):
-    gbox_queue = app.config["QUEUE"]
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.bump_down(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_json(), broadcast=True)
+    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
 
 
 if __name__ == "__main__":

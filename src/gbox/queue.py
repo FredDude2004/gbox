@@ -28,7 +28,7 @@ class GBoxQueue:
     def is_empty(self) -> bool:
         return self.queue == []
 
-    def to_json(self) -> list:
+    def to_view_list(self) -> list:
         return [{"title": entry.title, "user": entry.username} for entry in self.queue]
 
     def bump_up(self, item: Song) -> None:
