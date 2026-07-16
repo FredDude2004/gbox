@@ -1,18 +1,38 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    session,
+    jsonify,
+)
 from flask_login import LoginManager, login_user, login_required, logout_user
-
+from flask_socketio import SocketIO, emit
 from sqlmodel import select
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .model import User
-from .database import get_session
 from .constants import *
+from .database import get_session
+from .downloader import download_song
+from .model import User, Config
+from .queue import GBoxQueue
 
 app = Flask(__name__)
-app.secret_key = "KEY_HERE_I_GUESS"
+app.config.from_object(Config)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=app.config["CORS_ORIGINS"],
+    logger=True,
+    engineio_logger=True,
+)
 
 
 @login_manager.user_loader
@@ -43,6 +63,8 @@ def login():
                 user = User(username=str(username))
                 session.add(user)
                 session.commit()
+            login_user(user)
+            flash(f"Welcome {user.username}!")
             return redirect(url_for("index"))
 
     return render_template("login.html")
@@ -71,9 +93,24 @@ def admin():
 
 # socket event handlers
 
+
 # TODO: Add an event handler for when a user submits a url
 #       The handler should return the entire state of the queue
 #       The frontend should then update the queue on the screen
+@socketio.on("submit_song")
+def submit(data: dict):
+    try:
+        yt_url = data["url"]
+        username = data["username"]
+
+        song = download_song(yt_url, username)
+        gbox_queue = app.config["QUEUE"]
+        gbox_queue.add_song(song)
+
+        emit("song_added", gbox_queue.to_json(), broadcast=True)
+    except:
+        pass
+
 
 # ADMIN EVENT HANDLERS
 
@@ -86,3 +123,13 @@ def admin():
 # TODO: Add an event handler for bump song up
 
 # TODO: Add an event handler for bump song down
+
+
+if __name__ == "__main__":
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        debug=app.config["DEBUG"],
+        use_reloader=app.config["DEBUG"],
+    )

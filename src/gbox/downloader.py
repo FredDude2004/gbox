@@ -26,7 +26,7 @@ def check_if_downloaded(url: str):
         return result
 
 
-def download_song(url: str) -> Song:
+def download_song(url: str, username: str) -> Song:
     """Download the song from the provided url and enter the download into the database"""
 
     # check if the song is already downloaded
@@ -79,6 +79,7 @@ def download_song(url: str) -> Song:
             duration=duration,
             view_count=view_count,
             file_path=final_filepath,
+            username=username,
         )
 
         session.add(new_song)

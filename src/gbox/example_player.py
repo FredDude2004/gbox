@@ -1,11 +1,8 @@
-import subprocess
-
 from collections import deque
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
-
-from .queue import GBoxQueue
+import subprocess
 
 
 class VLCPlayer:
@@ -15,13 +12,13 @@ class VLCPlayer:
     previously selected track when playback has ended and a new track is added.
     """
 
-    def __init__(self, queue: GBoxQueue) -> None:
+    def __init__(self) -> None:
         self.commands: Queue[tuple[str, str | None]] = Queue()
         self.process: subprocess.Popen[str] | None = None
         self.worker = Thread(target=self._run, daemon=True)
 
         # These fields are only accessed by the worker thread.
-        self._queue: GBoxQueue = queue
+        self._pending: deque[Path] = deque()
         self._current: Path | None = None
 
     def start(self) -> None:
@@ -56,11 +53,10 @@ class VLCPlayer:
 
     def _start_next(self) -> None:
         """Start the next queued track when no track is currently running."""
-        if self.process is not None or not self._queue:
+        if self.process is not None or not self._pending:
             return
 
-        song = self._queue.get_next_song()
-        path = Path(song.file_path)
+        path = self._pending.popleft()
 
         try:
             self.process = subprocess.Popen(
@@ -78,12 +74,13 @@ class VLCPlayer:
             )
         except FileNotFoundError:
             print("Could not find cvlc. Make sure VLC is installed.")
+            self._pending.clear()
             return
 
         self._current = path
         print(f"Playing: {path.name}")
 
-    def wait_for_track_to_finish(self) -> bool:
+    def _reap_finished_track(self) -> bool:
         """Clean up a naturally finished VLC process.
 
         Returns True when a track finished, allowing the worker to immediately
@@ -99,7 +96,7 @@ class VLCPlayer:
         self._current = None
         return True
 
-    def end_current_track(self) -> None:
+    def _end_current_track(self) -> None:
         """Stop the active VLC process and fully reap it."""
         process = self.process
 
@@ -130,7 +127,7 @@ class VLCPlayer:
             # A process exits when its track ends because of --play-and-exit.
             # Start the next Python-queued track rather than asking VLC to
             # resume its old internal playlist selection.
-            if self.wait_for_track_to_finish():
+            if self._reap_finished_track():
                 self._start_next()
 
             try:
@@ -138,17 +135,70 @@ class VLCPlayer:
             except Empty:
                 continue
 
-            if command == "pause":
+            if command == "add" and argument is not None:
+                path = Path(argument).expanduser().resolve()
+
+                if not path.is_file():
+                    print(f"File does not exist: {path}")
+                    continue
+
+                self._pending.append(path)
+                print(f"Queued: {path.name}")
+
+                # If playback is idle, this starts exactly the newly queued
+                # track (or the oldest pending track), never a completed one.
+                if self.process is None:
+                    self._start_next()
+
+            elif command == "pause":
                 self._send("pause")
 
             elif command == "next":
-                self.end_current_track()
+                self._end_current_track()
                 self._start_next()
 
             elif command == "stop":
-                self.end_current_track()
+                self._end_current_track()
 
             elif command == "quit":
-                self._queue.clear()
-                self.end_current_track()
+                self._pending.clear()
+                self._end_current_track()
                 break
+
+
+def main() -> None:
+    player = VLCPlayer()
+    player.start()
+
+    print("=" * 50)
+    print("Simple VLC Queue Player")
+    print("=" * 50)
+    print("Enter the path to an audio file to add it to the queue.")
+    print("Type 'quit' to exit.")
+    print()
+
+    while True:
+        try:
+            path = input("Audio file> ").strip()
+
+            if not path:
+                continue
+
+            if path.lower() in {"quit", "exit", "q"}:
+                break
+
+            player.add(path)
+
+        except KeyboardInterrupt:
+            print()
+            break
+        except EOFError:
+            print()
+            break
+
+    print("Closing player...")
+    player.close()
+
+
+if __name__ == "__main__":
+    main()
