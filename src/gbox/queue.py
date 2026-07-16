@@ -51,7 +51,7 @@ class GBoxQueue:
                 self.queue[idx - 1],
             )
 
-    def bump_down(self, item: Song) -> None:
+    def bump_down(self, item) -> None:
         """
         For the Admin to bump down a specific song
         """
@@ -80,7 +80,7 @@ class GBoxQueue:
             finally:
                 pass
 
-    def add_song(self, item: Song) -> None:
+    def add_song(self, item) -> None:
         """
         Add a song to the queue
         """
@@ -94,7 +94,7 @@ class GBoxQueue:
         with self.lock:
             self.queue.append(item)
 
-    def remove_song(self, item: Song) -> None:
+    def remove_song(self, item) -> None:
         """
         Remove a song from the queue
         """
@@ -116,7 +116,7 @@ class GBoxQueue:
 
         with self.lock:
             if self.queue:
-                self.current_song = self.queue.pop()
+                self.current_song = self.queue.pop(0)
                 return self.current_song
 
             raise Exception("Error: GBoxQueue is empty no next song")

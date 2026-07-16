@@ -69,6 +69,9 @@ db.sqlite3-journal
 instance/
 .webassets-cache
 
+# GBox runtime data (SQLite database and downloaded audio)
+/data/
+
 # Scrapy stuff:
 .scrapy
 
@@ -177,4 +180,3 @@ pyrightconfig.json
 *.mp3
 
 # End of https://www.toptal.com/developers/gitignore/api/python
-

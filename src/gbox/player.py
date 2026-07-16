@@ -44,12 +44,14 @@ class VLCPlayer:
         )
 
     def start(self) -> None:
+        print("Starting the Player")
         if self.worker_thread is not None:
             return
         self.shutdown.clear()
         self.worker_thread = threading.Thread(
             target=self.worker, name="VLCPlayerWorker", daemon=True
         )
+        logger.info("Starting the VLCPlayer Worker")
         self.worker_thread.start()
 
     def worker(self) -> None:
@@ -69,6 +71,7 @@ class VLCPlayer:
                     audio_file_path = song.file_path
                 except Exception as e:
                     logger.debug(e)
+                    self.shutdown.wait(POLL_INTERVAL)
                     continue
                 self.start_audio(audio_file_path)
                 continue
@@ -192,6 +195,6 @@ class VLCPlayer:
         """
 
         self.command_queue.put(("close", None))
-        if self._worker_thread is not None:
-            self._worker_thread.join()
-            self._worker_thread = None
+        if self.worker_thread is not None:
+            self.worker_thread.join()
+            self.worker_thread = None

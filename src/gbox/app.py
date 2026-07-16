@@ -1,3 +1,16 @@
+if __name__ == "__main__" and __package__ is None:
+    # Running this file directly adds ``src/gbox`` to sys.path, which makes
+    # queue.py shadow Python's standard-library queue module. Treat the file as
+    # part of the gbox package and put ``src`` on the import path instead.
+    import sys
+    from pathlib import Path
+
+    package_dir = str(Path(__file__).resolve().parent)
+    if package_dir in sys.path:
+        sys.path.remove(package_dir)
+    sys.path.insert(0, str(Path(package_dir).parent))
+    __package__ = "gbox"
+
 import logging
 
 from flask import (
@@ -17,9 +30,10 @@ from gbox.queue import GBoxQueue
 
 
 from .constants import *
-from .database import get_session
+from .database import get_session, init_db
 from .downloader import download_song
-from .model import User, Config, Song
+from .config import Config
+from .model import User, Song
 from .player import VLCPlayer
 
 app = Flask(__name__)
@@ -28,7 +42,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
-# login_manager.login_view = "login"
+login_manager.login_view = "login"
 
 socketio = SocketIO(
     app,
@@ -68,7 +82,8 @@ def login():
                 user = User(username=str(username))
                 session.add(user)
                 session.commit()
-            login_user(user)
+                session.refresh(user)
+                login_user(user)
             flash(f"Welcome {user.username}!")
             return redirect(url_for("index"))
 
@@ -97,6 +112,15 @@ def admin():
 
 
 # socket event handlers
+@socketio.on("connect")
+def send_initial_queue():
+    """Send the current queue to only the client that just connected."""
+    gbox_queue: GBoxQueue = app.config["QUEUE"]
+
+    print(gbox_queue.to_view_list())
+    emit("queue_update", gbox_queue.to_view_list())
+
+
 @socketio.on("submit_song")
 def submit(data: dict):
     try:
@@ -107,9 +131,11 @@ def submit(data: dict):
         gbox_queue: GBoxQueue = app.config["QUEUE"]
         gbox_queue.add_song(song)
 
-        emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
-    except:
-        pass
+        emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
+        return {"ok": True}
+    except Exception as exc:
+        logger.exception("Unable to submit song")
+        return {"ok": False, "error": str(exc) or "Unable to add that song."}
 
 
 # admin event handlers
@@ -125,7 +151,9 @@ def skip_song():
     player.next()
 
     gbox_queue: GBoxQueue = app.config["QUEUE"]
-    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
+    print(gbox_queue.to_view_list())
+
+    emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_remove_song")
@@ -133,7 +161,8 @@ def clear_queue():
     gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.clear_queue()
 
-    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
+    print(gbox_queue.to_view_list())
+    emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_remove_song")
@@ -141,7 +170,8 @@ def remove_song(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.remove_song(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
+    print(gbox_queue.to_view_list())
+    emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_bump_up_song")
@@ -149,7 +179,8 @@ def bump_song_up(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.bump_up(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
+    print(gbox_queue.to_view_list())
+    emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
 
 
 @socketio.on("admin_bump_down_song")
@@ -157,10 +188,13 @@ def bump_song_down(data: dict):
     gbox_queue: GBoxQueue = app.config["QUEUE"]
     gbox_queue.bump_down(Song(**data["song"]))
 
-    emit("queue_updated", gbox_queue.to_view_list(), broadcast=True)
+    print(gbox_queue.to_view_list())
+    emit("queue_update", gbox_queue.to_view_list(), broadcast=True)
 
 
 if __name__ == "__main__":
+    init_db()
+    app.config["PLAYER"].start()
     socketio.run(
         app,
         host="0.0.0.0",

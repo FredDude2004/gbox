@@ -1,8 +1,11 @@
 import os
 import re
+from pathlib import Path
 
 from sqlmodel import select
-from yt_dlp import _Params, YoutubeDL
+from typing import Any
+
+from yt_dlp import YoutubeDL
 
 from .constants import AUDIO_PATH
 from .database import get_session
@@ -21,9 +24,29 @@ def check_if_downloaded(url: str):
     """Check if a song is already downloaded"""
     with next(get_session()) as session:
         statement = select(Song).where(Song.url == url)
-        result = session.exec(statement).first()
+        song = session.exec(statement).first()
 
-        return result
+        if song is None:
+            return None
+
+        stored_path = Path(song.file_path)
+        candidates = [stored_path]
+        if not stored_path.is_absolute():
+            candidates.insert(0, AUDIO_PATH / stored_path)
+        if song.title:
+            candidates.append(AUDIO_PATH / f"{song.title}.mp3")
+
+        for candidate in candidates:
+            if candidate.is_file():
+                resolved_path = str(candidate.resolve())
+                if song.file_path != resolved_path:
+                    song.file_path = resolved_path
+                    session.add(song)
+                    session.commit()
+                    session.refresh(song)
+                return song
+
+        return None
 
 
 def download_song(url: str, username: str) -> Song:
@@ -34,7 +57,7 @@ def download_song(url: str, username: str) -> Song:
         return song
 
     # options for downloading the song
-    ydl_opts: _Params = {
+    ydl_opts: dict[str, Any] = {
         "format": "bestaudio/best",
         "outtmpl": os.path.join(
             AUDIO_PATH, "%(title)s.%(ext)s"
@@ -67,7 +90,7 @@ def download_song(url: str, username: str) -> Song:
         # Determine the final downloaded file path
         # yt-dlp gives us the template path, we replace the extension with our target (mp3)
         temp_filepath = ydl.prepare_filename(info_dict)
-        final_filepath = clean_filename(os.path.basename(temp_filepath))
+        final_filepath = str(Path(temp_filepath).with_suffix(".mp3"))
 
     # create an entry for the song in the database
     with next(get_session()) as session:

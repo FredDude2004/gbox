@@ -30,7 +30,7 @@ def receive_checkin(dbapi_connection, connection_record):
 def init_db() -> None:
     """Initializes the database and creates all tables."""
 
-    import model
+    from . import model  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
 

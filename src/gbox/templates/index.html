@@ -6,11 +6,50 @@
         <title>GBox</title>
         <link
             rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+            href="{{ url_for('static', filename='style.css') }}"
         />
-        <link rel="stylesheet" href="../static/style.css" />
     </head>
-    <body>
-        <div></div>
+    <body data-username="{{ current_user.username }}">
+        <header>
+            <h1>GBox</h1>
+            <p>
+                Signed in as <strong>{{ current_user.username }}</strong>
+                · <a href="{{ url_for('logout') }}">Log out</a>
+            </p>
+            <p id="connection-status" role="status">Connecting…</p>
+        </header>
+
+        <main>
+            <section aria-labelledby="submit-heading">
+                <h2 id="submit-heading">Add a song</h2>
+                <form id="song-form" novalidate>
+                    <label for="youtube-url">YouTube URL</label>
+                    <input
+                        id="youtube-url"
+                        name="url"
+                        type="url"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        autocomplete="url"
+                        required
+                    />
+                    <button type="submit">Add to queue</button>
+                </form>
+                <p id="form-message" role="status" aria-live="polite"></p>
+            </section>
+
+            <section aria-labelledby="queue-heading">
+                <h2 id="queue-heading">Queue</h2>
+                <p id="queue-empty">The queue is empty.</p>
+                <div
+                    id="queue"
+                    class="queue-viewport"
+                    aria-live="polite"
+                    aria-label="Song queue"
+                ></div>
+            </section>
+        </main>
+
+        <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+        <script src="{{ url_for('static', filename='gbox.js') }}"></script>
     </body>
 </html>
