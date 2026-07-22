@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from pathlib import Path
@@ -11,6 +12,8 @@ from .constants import AUDIO_PATH
 from .database import get_session
 from .gbox_queue import QueueEntry
 from .model import Song
+
+logger = logging.getLogger(__name__)
 
 
 def clean_filename(filename: str):
@@ -26,6 +29,7 @@ def check_if_downloaded(url: str) -> QueueEntry | None:
     with next(get_session()) as session:
         statement = select(Song).where(Song.url == url)
         song = session.exec(statement).first()
+        logger.debug(f"Checking song in database: {song}")
 
         if song is None:
             return None
@@ -55,7 +59,9 @@ def download_song(url: str, username: str) -> QueueEntry:
 
     # check if the song is already downloaded
     if song := check_if_downloaded(url):
+        logger.info(f"URL is saved in database: {song}")
         return song
+    logger.info(f"URL is not saved in database: {url}")
 
     # options for downloading the song
     ydl_opts: dict[str, Any] = {
@@ -84,10 +90,13 @@ def download_song(url: str, username: str) -> QueueEntry:
         view_count = info_dict.get("view_count")
 
         if duration is None or duration > 900:
+            logger.info("Video is over 15 minutes")
             raise Exception("Video must be less than 15 minutes")
 
         cleaned_filepath = AUDIO_PATH / clean_filename(f"{title or video_id}.mp3")
-        ydl.params["outtmpl"] = {"default": str(cleaned_filepath.with_suffix(".%(ext)s"))}
+        ydl.params["outtmpl"] = {
+            "default": str(cleaned_filepath.with_suffix(".%(ext)s"))
+        }
         ydl.download([url])
 
         # Determine the final downloaded file path
